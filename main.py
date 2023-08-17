@@ -4,6 +4,18 @@ import pickle
 import face_recognition
 import numpy as np
 import cvzone
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+from firebase_admin import storage
+
+cred = credentials.Certificate("key.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://faceattendancerealtime-b167b-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    'storageBucket': "faceattendancerealtime-b167b.appspot.com"
+})
+
+bucket = storage.bucket()
 
 cap = cv2.VideoCapture(0)
 cap.set(3, 640)
@@ -27,6 +39,11 @@ encodeListKnown, studentIds = encodeListKnownWithIds
 # print(studentIds)
 print("Encode File Loaded")
 
+modeType = 0
+counter = 0
+id = 0
+imgStudent = []
+
 while True:
     success, img = cap.read()
     
@@ -37,7 +54,7 @@ while True:
     encodeCurFrame = face_recognition.face_encodings(imgS, faceCurFrame)
     
     imgBackground[162:162+480, 55:55+640] = img
-    imgBackground[44:44+633, 808:808+414] = imgModeList[0]
+    imgBackground[44:44+633, 808:808+414] = imgModeList[modeType]
     
     for encodeFace, faceLoc in zip(encodeCurFrame, faceCurFrame):
         matches = face_recognition.compare_faces(encodeListKnown, encodeFace)
@@ -55,6 +72,37 @@ while True:
             y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
             bbox = 55+x1,162+y1,x2-x1, y2-y1
             imgBackground = cvzone.cornerRect(imgBackground, bbox, rt=0)
+            id = studentIds[matchIndex]     
+                   
+            if counter == 0:
+                counter = 1
+                modeType = 1
+                
+    if counter != 0:
+        
+        if counter == 1:
+            # Get the Data
+            studentInfo = db.reference(f'Students/{id}').get()
+            print(studentInfo)
+            # Get the image from the storage
+            blob = bucket.get_blob(f'Images/{id}.png')
+            array = np.frombuffer(blob.download_as_string(), np.uint8)
+            imgStudent = cv2.imdecode(array, cv2.COLOR_BGRA2BGR)
+        cv2.putText(imgBackground, str(studentInfo['total_attendance']), (861, 125), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 1)
+        
+        cv2.putText(imgBackground, str(studentInfo['major']), (1006, 550), cv2.FONT_HERSHEY_COMPLEX, .5, (255, 255, 255), 1)
+        cv2.putText(imgBackground, str(id), (1006, 493), cv2.FONT_HERSHEY_COMPLEX, .5, (255, 255, 255), 1)
+        cv2.putText(imgBackground, str(studentInfo['standing']), (910, 625), cv2.FONT_HERSHEY_COMPLEX, .6, (100, 100, 100), 1)
+        cv2.putText(imgBackground, str(studentInfo['year']), (1025, 625), cv2.FONT_HERSHEY_COMPLEX, .6, (100, 100, 100), 1)
+        cv2.putText(imgBackground, str(studentInfo['starting_year']), (1125, 625), cv2.FONT_HERSHEY_COMPLEX, .6, (100, 100, 100), 1)
+        
+        (w, h), _ = cv2.getTextSize(studentInfo['name'], cv2.FONT_HERSHEY_COMPLEX, 1, 1)
+        offset = (414-w)//2
+        cv2.putText(imgBackground, str(studentInfo['name']), (808+offset, 445), cv2.FONT_HERSHEY_COMPLEX, 1, (50, 50, 50), 1)
+        
+        imgBackground[175:175+216, 909:909+216] = imgStudent
+        
+        counter += 1
     
     # cv2.imshow("Webcam", img)
     cv2.imshow("Face Attendance", imgBackground)
